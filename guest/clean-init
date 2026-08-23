@@ -1,0 +1,14 @@
+#!/bin/sh
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+export LD_LIBRARY_PATH=/opt/smt/runtime/Lib
+insmod /lib/modules/6.1.0-50-armmp/kernel/drivers/virtio/virtio_mmio.ko
+insmod /lib/modules/6.1.0-50-armmp/kernel/drivers/char/virtio_console.ko
+attempt=0
+while [ ! -e /dev/vport0p1 ] && [ "$attempt" -lt 300 ]; do
+	attempt=$((attempt + 1))
+	sleep 0.05
+done
+/opt/smt/samsung_guest 2>/dev/null
+poweroff -f

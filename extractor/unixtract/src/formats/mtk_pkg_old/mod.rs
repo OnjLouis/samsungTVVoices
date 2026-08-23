@@ -1,0 +1,113 @@
+mod include;
+mod mtk_crypto;
+use std::any::Any;
+use crate::AppContext;
+
+use std::path::Path;
+use std::fs::{self, OpenOptions};
+use std::io::{Cursor, Seek, SeekFrom, Write};
+use binrw::BinReaderExt;
+
+use crate::utils::common;
+use crate::utils::global::opt_dump_dec_hdr;
+use crate::formats::mtk_pkg::lzhs::{decompress_mtk_to_file_old};
+use crate::formats::mtk_pkg::include::{PartEntry, MTK_HEADER_MAGIC, MTK_META_MAGIC, MTK_META_PAD_MAGIC};
+use mtk_crypto::{decrypt};
+use include::*;
+
+pub struct MtkPkgOldContext {
+    header_offset: u64,
+}
+
+pub fn is_mtk_pkg_old_file(app_ctx: &AppContext) -> Result<Option<Box<dyn Any>>, Box<dyn std::error::Error>> {
+    let file = match app_ctx.file() {Some(f) => f, None => return Ok(None)};
+    
+    let encrypted_header = common::read_file(&file, 0, HEADER_SIZE)?;
+    let (header_key, header_iv) = app_ctx.keys.get_double_key_as_arr::<4, 4>("MTK_PKG_OLD_HEADER_KEY")?;
+    let header = decrypt(&encrypted_header, &header_key, &header_iv);
+    if &header[4..12] == MTK_HEADER_MAGIC {
+        Ok(Some(Box::new(MtkPkgOldContext {header_offset: 0})))
+    } else if &header[68..76] == MTK_HEADER_MAGIC {
+        //check for 64 byte additional header used in some Sony and Philips firmwares
+        Ok(Some(Box::new(MtkPkgOldContext {header_offset: 64})))
+    } else if &header[132..140] == MTK_HEADER_MAGIC {
+        //check for 128 byte additional header used in some Philips firmwares
+        Ok(Some(Box::new(MtkPkgOldContext {header_offset: 128})))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn extract_mtk_pkg_old(app_ctx: &AppContext, ctx: Box<dyn Any>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut file = app_ctx.file().ok_or("Extractor expected file")?;
+    let ctx = ctx.downcast::<MtkPkgOldContext>().expect("Missing context");
+
+    let file_size = file.metadata()?.len();
+
+    file.seek(SeekFrom::Start(ctx.header_offset))?;
+    let encrypted_header = common::read_exact(&mut file, HEADER_SIZE)?;
+    let (header_key, header_iv) = app_ctx.keys.get_double_key_as_arr::<4, 4>("MTK_PKG_OLD_HEADER_KEY")?;
+    let header = decrypt(&encrypted_header, &header_key, &header_iv);
+    opt_dump_dec_hdr(app_ctx, &header, "header")?;
+    
+    let mut hdr_reader = Cursor::new(header); 
+    let hdr: Header = hdr_reader.read_le()?;
+
+    println!("File info:\nFile size: {}\nVendor magic: {}\nVersion info: {}\nProduct name: {}" , 
+            hdr.file_size, hdr.vendor_magic(), hdr.version(), hdr.product_name());
+
+    let mut part_n = 0;
+    while file.stream_position()? < file_size as u64 {
+        part_n += 1;
+        let part_entry: PartEntry = file.read_le()?;
+
+        println!("\n#{} - {}, Size: {}{} {}", 
+                part_n, part_entry.name(), part_entry.size, if part_entry.is_compressed() {" [COMPRESSED]"} else {""}, if part_entry.is_encrypted() {"[ENCRYPTED]"} else {""} );
+
+        let data = common::read_exact(&mut file, part_entry.size as usize)?;
+        let out_data; 
+        if part_entry.is_encrypted() {
+            //decrypt with the vendor magic
+            println!("- Decrypting...");
+            let data_iv = app_ctx.keys.get_key_as_arr::<4>("MTK_PKG_OLD_DATA_IV", 0)?;
+            out_data = decrypt(&data, &hdr.vendor_magic_bytes, &data_iv);
+        } else {
+            out_data = data;
+        }
+
+        //strip iMtK thing and get version
+        let extra_header_len = if &out_data[0..4] == MTK_META_MAGIC {
+            let imtk_len = u32::from_le_bytes(out_data[4..8].try_into().unwrap());
+            if imtk_len != 0 && &out_data[8..12] != MTK_META_PAD_MAGIC {
+                let version_len = u32::from_le_bytes(out_data[8..12].try_into().unwrap());
+                let version = common::string_from_bytes(&out_data[12..12 + version_len as usize]);
+                println!("- Version: {}", version);
+            }
+            imtk_len + 8
+        } else {
+            0
+        };
+        let fin_data = &out_data[extra_header_len as usize..];
+        
+        let output_path = Path::new(&app_ctx.output_dir).join(format!("{}.bin", part_entry.name()));
+        fs::create_dir_all(&app_ctx.output_dir)?;
+
+        if part_entry.is_compressed() {
+            match decompress_mtk_to_file_old(&fin_data, &output_path) {
+                Ok(()) => {
+                    println!("-- Decompressed Successfully, Saved file!");
+                    continue
+                },
+                Err(e) => {
+                    eprintln!("Failed to decompress partition!, Error: {}. Saving compressed data...", e);
+                }
+            }
+        }
+
+        let mut out_file = OpenOptions::new().write(true).create(true).open(&output_path)?;
+        out_file.write_all(&fin_data)?;
+        println!("-- Saved file!");
+    }
+
+    Ok(())
+}

@@ -1,0 +1,40 @@
+#!/bin/sh
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mkdir -p /etc
+ln -sf /proc/mounts /etc/mtab
+insmod /lib/modules/6.1.0-50-armmp/kernel/drivers/virtio/virtio_mmio.ko
+insmod /lib/modules/6.1.0-50-armmp/kernel/drivers/char/virtio_console.ko
+insmod /lib/modules/6.1.0-50-armmp/kernel/drivers/block/virtio_blk.ko
+
+attempt=0
+while { [ ! -e /dev/vport0p1 ] || [ ! -e /dev/vda ]; } && [ "$attempt" -lt 600 ]; do
+	attempt=$((attempt + 1))
+	sleep 0.05
+done
+
+fail() {
+	printf 'ERROR %s\n' "$1" > /dev/vport0p1
+	poweroff -f
+}
+
+[ -e /dev/vport0p1 ] || poweroff -f
+[ -e /dev/vda ] || fail "The firmware filesystem did not become available."
+mkdir -p /tmp/extracted
+if ! /bin/unpack.vdfs -o /tmp/extracted /dev/vda >/tmp/unpack.log 2>&1; then
+	detail=$(/bin/busybox tail -c 3000 /tmp/unpack.log | /bin/busybox tr '\n' ' ')
+	fail "The Samsung firmware filesystem could not be extracted. ${detail}"
+fi
+cd /tmp/extracted || fail "The extracted firmware could not be opened."
+[ -d usr/share/voice/tts/smt_vd ] || fail "The firmware did not contain Samsung TV speech data."
+if [ ! -f usr/lib/libSMT_engine_sh.so ] && [ ! -f lib/libSMT_engine_sh.so ]; then
+	fail "The firmware did not contain the Samsung TV speech engine."
+fi
+printf 'SAMSUNG_TTS_TAR_STREAM\n' > /dev/vport0p1
+if [ -f usr/lib/libSMT_engine_sh.so ]; then
+	tar -cf - usr/share/voice/tts/smt_vd usr/lib/libSMT_engine_sh.so > /dev/vport0p1 || poweroff -f
+else
+	tar -cf - usr/share/voice/tts/smt_vd lib/libSMT_engine_sh.so > /dev/vport0p1 || poweroff -f
+fi
+poweroff -f

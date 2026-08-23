@@ -1,0 +1,19 @@
+Samsung TV Voices does not include Samsung firmware, speech engines, models,
+or voices. When requested by the user, it downloads a supported package from
+Samsung's official download service, verifies its fixed SHA-256 digest, keeps
+only the speech components in the NVDA user-data folder, and removes the
+firmware and extraction workspace.
+
+Firmware package separation is performed by unixtract:
+https://github.com/theubusu/unixtract
+License: GNU General Public License version 3
+
+VDFS filesystem extraction is based on Samsung's vdfs4-tools.0010 source,
+distributed through the HinTak/vdfs-tools repository:
+https://github.com/HinTak/vdfs-tools
+License: GNU General Public License version 2 or later
+
+The local VDFS modification skips all regular files except the Samsung speech
+tree and speech-engine library. Complete corresponding source, including that
+change and build instructions, is provided in the public source repository for
+this add-on.

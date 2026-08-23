@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+build/
+dist/
+release/
+artifacts/
+*.nvda-addon
+*.log
+*.dmp
+

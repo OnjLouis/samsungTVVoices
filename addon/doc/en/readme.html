@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Samsung TV Voices</title>
+</head>
+<body>
+<h1>Samsung TV Voices</h1>
+<p>Samsung TV Voices makes compatible Samsung television speech voices available through NVDA. It can provide female and male voices in up to 15 languages.</p>
+<p>The add-on contains no Samsung firmware, speech engine, model or voice data. You choose an official regional firmware package and the voice manager downloads it directly from Samsung. Only its speech components are retained on your computer.</p>
+<h2>First use</h2>
+<ol>
+<li>Open NVDA Settings and select Samsung TV Voices.</li>
+<li>Select the European and UK firmware, the North American firmware, or both.</li>
+<li>Choose Download or update selected firmware.</li>
+<li>After installation completes, select Samsung TV Voices in NVDA's synthesizer dialog. No NVDA restart is required.</li>
+</ol>
+<p>Each official download is about 1.2 GB. At least 6 GB of temporary free space is required during installation. Interrupted downloads resume where possible. Firmware archives, decrypted television images and temporary extraction files are removed after the operation.</p>
+<p>Downloads continue if the settings window is closed. Reopening Samsung TV Voices shows the active package as Downloading and keeps Download or update unavailable until it finishes.</p>
+<h2>Voice manager</h2>
+<p>The Samsung TV Voices settings panel lists the available firmware packages, their installed state and the voices currently available. Multiple firmware packages may be selected for download, update or removal. Downloads continue if the settings panel is closed. A focusable two-column status list reports the current package, stage, batch position, progress, transferred size and download speed without moving your reading position as values change. Removing the last package requires you to switch to another synthesizer first.</p>
+<p>Installed speech data is stored in the <code>samsungTVVoices</code> folder beside your NVDA configuration. Updating the add-on does not remove downloaded voices.</p>
+<p>The same panel offers signed add-on update checks. Checks can run never, hourly or daily, and Check now starts one immediately.</p>
+<h2>Using the voices</h2>
+<p>Select Samsung TV Voices in NVDA's synthesizer dialog. The first selection starts an isolated ARM speech helper and can take several seconds. The helper remains ready for the rest of the NVDA session, including while another synthesizer is selected.</p>
+<p>Voice, rate, pitch and volume are available through NVDA's normal speech settings and synthesizer settings ring. The ring also exposes the engine's undocumented Head size control, which changes vocal-tract size independently of pitch. Speech pause, interruption, spelling and Say All indexes are passed through NVDA's audio system.</p>
+<h2>Firmware and legal notice</h2>
+<p>Firmware is obtained from Samsung only when you request it. The add-on verifies each supported package with a fixed SHA-256 checksum before extracting its speech components. Use of downloaded Samsung material remains subject to Samsung's terms and applicable law. This project is independent and is not endorsed by Samsung.</p>
+<p>The supported packages come from Samsung's official support pages for the <a href="https://www.samsung.com/ie/support/model/UE50MU6120KXXU/">UE50MU6120K</a> and <a href="https://www.samsung.com/latin_en/support/model/UN50MU6300FXZA/">UN50MU6300F</a> television families.</p>
+<h2>Credits</h2>
+<ul>
+<li>Samsung provides the optional firmware and speech components downloaded by the user.</li>
+<li><a href="https://github.com/theubusu/unixtract">unixtract</a> decrypts and separates Samsung firmware packages and incorporates work from msddecrypt.</li>
+<li><a href="https://github.com/HinTak/vdfs-tools">VDFS tools</a> extracts the required speech files from Samsung's VDFS filesystem. The add-on uses the coherent vdfs4-tools.0010 base with a narrowly scoped extraction filter.</li>
+<li><a href="https://github.com/xpack-dev-tools/qemu-arm-xpack">xPack QEMU Arm</a> provides ARM emulation.</li>
+<li>The NVDA integration draws on lifecycle and audio lessons from the Prose 2000 and Dengjen Neural Voices add-ons.</li>
+</ul>
+<h2>Changes</h2>
+<h3>1.0.0</h3>
+<ul>
+<li>Added a voice-free public package with direct, verified downloads from Samsung.</li>
+<li>Added an accessible firmware and voice manager with multi-selection, background progress, removal and live voice refresh.</li>
+<li>Kept firmware installation state independent of the settings window, identified the active package as Downloading, and added a stable detail list for progress and speed.</li>
+<li>Added European and UK and North American firmware choices, providing up to 30 voices across 15 languages.</li>
+<li>Added NVDA voice, rate, pitch and volume controls.</li>
+<li>Added the engine's undocumented Head size control.</li>
+<li>Added streamed NVDA audio, pause, cancellation, spelling and Say All support.</li>
+<li>Added a persistent isolated helper that starts only when first needed.</li>
+<li>Added signed, configurable add-on update checks in the Samsung TV Voices settings panel.</li>
+</ul>
+</body>
+</html>

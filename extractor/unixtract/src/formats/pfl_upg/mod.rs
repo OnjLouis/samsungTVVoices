@@ -1,0 +1,166 @@
+mod include;
+use std::any::Any;
+use crate::{AppContext, InputTarget};
+
+use std::path::Path;
+use std::io::{Cursor, Seek, SeekFrom, Write};
+use std::fs::{self, File, OpenOptions};
+use binrw::BinReaderExt;
+use rsa::{RsaPublicKey, BigUint};
+
+use crate::utils::common;
+use crate::utils::aes::decrypt_aes256_ecb;
+use include::*;
+
+pub fn is_pfl_upg_file(app_ctx: &AppContext) -> Result<Option<Box<dyn Any>>, Box<dyn std::error::Error>> {
+    let file = match app_ctx.file() {Some(f) => f, None => return Ok(None)};
+
+    let header = common::read_file(&file, 0, 8)?;
+    if header == b"2SWU3TXV" {
+        Ok(Some(Box::new(())))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn extract_pfl_upg(app_ctx: &AppContext, _ctx: Box<dyn Any>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut file = app_ctx.file().ok_or("Extractor expected file")?;
+
+    let header: Header = file.read_le()?; 
+    let signature = common::read_exact(&mut file, 128)?;
+    let _ = common::read_exact(&mut file, 32)?; //unknown
+
+    let version_bytes = common::read_exact(&mut file, 28)?;
+    let version = common::string_from_bytes(&version_bytes);
+
+    println!("\nVersion: {}", version);
+    if header.description() != "" { //look ugly when empty
+        println!("--- Description --- \n{}", header.description());
+        println!("-------------------");
+    }
+    println!("Data size: {}", header.data_size);
+
+    file.seek(SeekFrom::Start(header.header_size as u64))?;
+
+    let mut data;
+    if header.is_encrypted() {
+        println!("\nFile is encrypted.");
+        
+        //get some data as test ciphertext for key finding
+        let ciphertext = common::read_file(&mut file, header.header_size as u64, 64)?;
+
+        //try find key
+        let mut key: Option<(String, [u8; 32])> = None;
+        for (name, keys) in app_ctx.keys.get_collection("PFL_UPG")? {     
+            let n = BigUint::from_bytes_be(keys.first().unwrap());
+            let e = BigUint::from_bytes_be(b"\x01\x00\x01");
+            let pubkey = RsaPublicKey::new(n, e)?;
+
+            let sig_int = BigUint::from_bytes_le(&signature);
+            let dec_int = rsa::hazmat::rsa_encrypt(&pubkey, &sig_int)?;
+            let dec_sig = dec_int.to_bytes_le();
+
+            let aes_key = &dec_sig[20..52];
+            let dec_ciphertext = decrypt_aes256_ecb(&ciphertext, aes_key.try_into().unwrap())?;
+        
+            //needs to start with null-termninated filename string
+            let end = match dec_ciphertext.iter().position(|&b| b == 0) {
+                Some(pos) => pos,
+                None => continue,       //there is no 0, continue
+            };
+            let fname = &dec_ciphertext[..end];
+            if fname.len() > 1 && fname.is_ascii() {       //is ascii filename
+                key = Some((name.to_string(), aes_key.try_into().unwrap()));
+                break
+            }
+        }
+
+        let aes_key;
+        if let Some((key_name, key)) = key {
+            println!("Matched pubkey: {}, AES key: {}", key_name, hex::encode(key));
+            aes_key = key;
+        } else {
+            return Err("Matching key not found, cannot decrypt data".into());
+        }
+
+        //need to align to 16 bytes for AES blocksize
+        let encrypted_data = common::read_exact(&mut file, (header.data_size as usize + 0xf) & !0xf)?;
+
+        println!("Decrypting data...");
+        data = decrypt_aes256_ecb(&encrypted_data, &aes_key)?;
+        data.truncate(header.data_size as usize);   //discard padding 
+        
+    } else {
+        data = common::read_exact(&mut file, header.data_size as usize)?;
+    }
+
+    let mut data_reader = Cursor::new(data);
+
+    while (data_reader.position() as usize) < data_reader.get_ref().len() {
+        let file_header: FileHeader = data_reader.read_le()?; 
+
+        //sometimes has extra header data
+        let ex_header_size = file_header.header_size - 76; //76 is base file header size
+        let ex_header_bytes = common::read_exact(&mut data_reader, ex_header_size as usize)?;
+
+        if file_header.is_folder() {
+            println!("\nFolder - {}", file_header.file_name());
+            let output_path = Path::new(&app_ctx.output_dir).join(file_header.file_name().trim_start_matches('/'));
+            fs::create_dir_all(output_path)?;
+            continue
+        }
+
+        let file_name = if file_header.has_extended_name() {
+            common::string_from_bytes(&ex_header_bytes) //extra header data used as name
+        } else {
+            file_header.file_name()
+        };
+
+        println!("\nFile - {}, Size: {}", file_name, file_header.real_size);
+        let data = common::read_exact(&mut data_reader, file_header.stored_size as usize)?;
+
+        let output_path = Path::new(&app_ctx.output_dir).join(file_name.trim_start_matches('/'));
+
+        fs::create_dir_all(&app_ctx.output_dir)?;
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        //pfl upg inside pfl upg! DUMB code!
+        if file_header.is_package() && !app_ctx.has_option("pfl_upg:no_extract_inner_upg"){
+            println!("- Extracting inner UPG...");
+
+            //save this as temp file
+            let temp_path = Path::new(&app_ctx.output_dir).join("inner_upg_temp");
+            let mut temp_file = OpenOptions::new().write(true).create(true).open(&temp_path)?;
+            temp_file.write_all(&data[..file_header.real_size as usize])?;
+
+            //REOPEN temp file and make ctx
+            let r_temp_file = File::open(&temp_path)?;
+            let in_ctx: AppContext = AppContext { 
+                input: InputTarget::File(r_temp_file), 
+                output_dir: output_path, 
+                options: app_ctx.options,
+                keys: app_ctx.keys,
+            };
+
+            //do check just in case and extract
+            if let Some(result) = is_pfl_upg_file(&in_ctx)? {
+                extract_pfl_upg(&in_ctx, result)?;
+            } else {
+                return Err("detection on inner UPG failed!".into());                 
+            }
+
+            //delete temp file
+            fs::remove_file(&temp_path)?;
+
+            continue
+        }
+        
+        let mut out_file = OpenOptions::new().write(true).create(true).open(output_path)?;
+        out_file.write_all(&data[..file_header.real_size as usize])?;
+        println!("- Saved file!");
+    }
+    
+    Ok(())
+}

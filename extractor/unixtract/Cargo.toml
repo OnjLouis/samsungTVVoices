@@ -1,0 +1,31 @@
+[package]
+name = "unixtract"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+lz4 = "1.28.1"
+lzma-rs = "0.3"
+aes = "0.8.4"
+cbc = "0.1.2"
+md5 = "0.8"
+sha1 = "0.10.6"
+flate2 = "1.1.5"
+rsa = { version = "0.9.10", features = ["hazmat"] }
+hex = "0.4.3"
+ecb = "0.1.2"
+tar = "0.4.44"
+binrw = "0.15"
+simd-adler32 = "*"
+minilzo-rs = "0.6.1"
+prost = "0.14.1"
+prost-types = "0.14.1"
+bzip2 = "0.6.1"
+liblzma = "0.4.5"
+des = "0.8.1"
+zstd = "0.13.3"
+sha2 = "0.11.0"
+base64 = "0.22.1"
+serde_json = "1.0.150"
+aes-gcm = "0.11.0"
