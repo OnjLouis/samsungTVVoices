@@ -2,7 +2,7 @@
 
 Samsung TV Voices makes compatible speech voices from official Samsung television firmware available through NVDA. The add-on contains no Samsung firmware, speech engine, model or voice data. Users choose an official regional firmware package, which is downloaded directly from Samsung and verified before its speech components are installed.
 
-The accessible manager supports background and multiple-package downloads, removal, live voice refresh, resumable transfers, and a stable status list. NVDA exposes voice, rate, pitch, volume, head size, interruption, spelling and Say All support.
+The accessible manager supports background and multiple-package downloads, removal, live voice refresh, resumable transfers, automatic recovery from a disconnected extraction helper, and a stable status list. NVDA exposes voice, rate, pitch, volume, head size, interruption, spelling and Say All support.
 
 ## Repository layout
 
@@ -17,4 +17,3 @@ The QEMU binary is an unmodified xPack QEMU Arm distribution; its notices and li
 This independent project is not affiliated with or endorsed by Samsung. Firmware is downloaded only after the user requests it. Samsung owns the optional firmware and speech components, and users remain responsible for applicable terms and law.
 
 See the [add-on manual](addon/doc/en/readme.html) for installation, supported firmware, credits and the complete changelog.
-

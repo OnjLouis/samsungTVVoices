@@ -36,6 +36,15 @@ def _downloadSnapshot():
 		return dict(_downloadState)
 
 
+def _cleanupInstallerCache():
+	try:
+		removed = firmwareStore.cleanupStaleInstallerFiles()
+		if removed:
+			log.info("Samsung TV Voices: removed %d expired installer artifact(s)", removed)
+	except Exception:
+		log.error("Samsung TV Voices could not clean its expired installer files", exc_info=True)
+
+
 def _callPanel(panelRef, methodName, *args):
 	panel = panelRef()
 	if panel is None:
@@ -430,6 +439,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._updater = SignedWebUpdater()
 		_activeUpdater = self._updater
 		self._updater.start()
+		threading.Thread(
+			target=_cleanupInstallerCache,
+			name="Samsung TV installer cache cleanup",
+			daemon=True,
+		).start()
 		settings = firmwareStore.loadSettings()
 		if not settings["firmwarePromptShown"] and not firmwareStore.installedPackIds():
 			settings["firmwarePromptShown"] = True

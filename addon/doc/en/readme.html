@@ -15,7 +15,7 @@
 <li>Choose Download or update selected firmware.</li>
 <li>After installation completes, select Samsung TV Voices in NVDA's synthesizer dialog. No NVDA restart is required.</li>
 </ol>
-<p>Each official download is about 1.2 GB. At least 6 GB of temporary free space is required during installation. Interrupted downloads resume where possible. Firmware archives, decrypted television images and temporary extraction files are removed after the operation.</p>
+<p>Each official download is about 1.2 GB. At least 6 GB of temporary free space is required during installation. Interrupted downloads resume where possible. Successful installations remove the firmware immediately. After a failed or interrupted installation, resumable downloads and temporary extraction files are retained for up to 24 hours, then removed automatically without affecting installed voices.</p>
 <p>Downloads continue if the settings window is closed. Reopening Samsung TV Voices shows the active package as Downloading and keeps Download or update unavailable until it finishes.</p>
 <h2>Voice manager</h2>
 <p>The Samsung TV Voices settings panel lists the available firmware packages, their installed state and the voices currently available. Multiple firmware packages may be selected for download, update or removal. Downloads continue if the settings panel is closed. A focusable two-column status list reports the current package, stage, batch position, progress, transferred size and download speed without moving your reading position as values change. Removing the last package requires you to switch to another synthesizer first.</p>
@@ -36,6 +36,13 @@
 <li>The NVDA integration draws on lifecycle and audio lessons from the Prose 2000 and Dengjen Neural Voices add-ons.</li>
 </ul>
 <h2>Changes</h2>
+<h3>1.0.1</h3>
+<ul>
+<li>Recovered automatically when the isolated firmware extraction helper disconnects before completing its work. Closes <a href="https://github.com/OnjLouis/samsungTVVoices/issues/1">Issue 1</a>.</li>
+<li>Retained verified downloads after an interrupted installation so retrying does not download the firmware again.</li>
+<li>Removed abandoned downloads and extraction files automatically after 24 hours without affecting installed voices.</li>
+<li>Improved extraction failure details while rejecting incomplete firmware results.</li>
+</ul>
 <h3>1.0.0</h3>
 <ul>
 <li>Added a voice-free public package with direct, verified downloads from Samsung.</li>

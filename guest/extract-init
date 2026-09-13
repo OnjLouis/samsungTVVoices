@@ -9,7 +9,7 @@ insmod /lib/modules/6.1.0-50-armmp/kernel/drivers/char/virtio_console.ko
 insmod /lib/modules/6.1.0-50-armmp/kernel/drivers/block/virtio_blk.ko
 
 attempt=0
-while { [ ! -e /dev/vport0p1 ] || [ ! -e /dev/vda ]; } && [ "$attempt" -lt 600 ]; do
+while { [ ! -e /dev/vport0p1 ] || [ ! -e /dev/vda ]; } && [ "$attempt" -lt 2400 ]; do
 	attempt=$((attempt + 1))
 	sleep 0.05
 done

@@ -12,6 +12,7 @@ import subprocess
 import tarfile
 import tempfile
 import threading
+import time
 import urllib.request
 import zipfile
 
@@ -25,6 +26,15 @@ CLEAN_INITRAMFS_PATH = os.path.join(ENGINE_DIR, "samsung-clean-initramfs.cpio")
 EXTRACTOR_INITRAMFS_PATH = os.path.join(ENGINE_DIR, "samsung-extractor-initramfs.cpio")
 UNIXTRACT_PATH = os.path.join(ENGINE_DIR, "tools", "unixtract.exe")
 _installLock = threading.Lock()
+_EXTRACTOR_ATTEMPTS = 2
+_EXTRACTOR_CONNECT_TIMEOUT_SECONDS = 60
+_EXTRACTOR_RESULT_TIMEOUT_SECONDS = 900
+_TAR_END_SIZE = 1024
+_INSTALLER_RETENTION_SECONDS = 24 * 60 * 60
+
+
+class _ExtractorDisconnected(RuntimeError):
+	pass
 
 PACKS = OrderedDict((
 	("europe", {
@@ -80,6 +90,50 @@ def runtimePath():
 
 def settingsPath():
 	return os.path.join(dataRoot(), "settings.json")
+
+
+def _cleanupStaleInstallerFiles(now=None):
+	root = dataRoot()
+	if not os.path.isdir(root):
+		return 0
+	cutoff = (time.time() if now is None else now) - _INSTALLER_RETENTION_SECONDS
+	candidates = []
+	familyPrefixes = tuple("%s-" % pack["family"] for pack in PACKS.values())
+	try:
+		entries = tuple(os.scandir(root))
+	except OSError:
+		entries = ()
+	for entry in entries:
+		if entry.name.startswith("firmware-") and entry.is_dir(follow_symlinks=False):
+			candidates.append(entry.path)
+		elif (
+			entry.is_file(follow_symlinks=False)
+			and entry.name.startswith(familyPrefixes)
+			and entry.name.endswith((".zip", ".zip.part"))
+		):
+			candidates.append(entry.path)
+	removed = 0
+	for path in candidates:
+		try:
+			if os.path.getmtime(path) >= cutoff:
+				continue
+			if os.path.isdir(path):
+				shutil.rmtree(path)
+			else:
+				os.remove(path)
+			removed += 1
+		except OSError:
+			continue
+	return removed
+
+
+def cleanupStaleInstallerFiles():
+	if not _installLock.acquire(blocking=False):
+		return 0
+	try:
+		return _cleanupStaleInstallerFiles()
+	finally:
+		_installLock.release()
 
 
 def loadSettings():
@@ -207,9 +261,16 @@ def _findPlatformImage(folder):
 def _readLine(connection, limit=4096):
 	data = bytearray()
 	while len(data) < limit:
-		part = connection.recv(1)
+		try:
+			part = connection.recv(1)
+		except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, socket.timeout) as error:
+			raise _ExtractorDisconnected(
+				"The firmware extraction helper disconnected before reporting its status."
+			) from error
 		if not part:
-			raise RuntimeError("The firmware extraction helper stopped unexpectedly.")
+			raise _ExtractorDisconnected(
+				"The firmware extraction helper disconnected before reporting its status."
+			)
 		if part == b"\n":
 			return bytes(data).decode("ascii", "replace")
 		data.extend(part)
@@ -220,9 +281,16 @@ def _receiveExact(connection, destination, size, progress):
 	received = 0
 	with open(destination, "wb") as output:
 		while received < size:
-			chunk = connection.recv(min(1024 * 1024, size - received))
+			try:
+				chunk = connection.recv(min(1024 * 1024, size - received))
+			except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, socket.timeout) as error:
+				raise _ExtractorDisconnected(
+					"The firmware extraction helper disconnected before completing its result."
+				) from error
 			if not chunk:
-				raise RuntimeError("The firmware extraction helper stopped before completing its result.")
+				raise _ExtractorDisconnected(
+					"The firmware extraction helper disconnected before completing its result."
+				)
 			output.write(chunk)
 			received += len(chunk)
 			progress("extract", received, size)
@@ -230,26 +298,32 @@ def _receiveExact(connection, destination, size, progress):
 
 def _receiveStream(connection, destination, maximumSize, progress):
 	received = 0
+	tail = bytearray()
 	with open(destination, "wb") as output:
 		while True:
 			try:
 				chunk = connection.recv(1024 * 1024)
-			except ConnectionResetError:
-				if received:
-					break
-				raise
+			except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, socket.timeout):
+				break
 			if not chunk:
 				break
 			received += len(chunk)
 			if received > maximumSize:
 				raise RuntimeError("The firmware extraction helper returned too much data.")
 			output.write(chunk)
+			tail.extend(chunk)
+			if len(tail) > _TAR_END_SIZE:
+				del tail[:-_TAR_END_SIZE]
 			progress("extract", received, 0)
 	if received == 0:
-		raise RuntimeError("The firmware extraction helper returned no speech data.")
+		raise _ExtractorDisconnected("The firmware extraction helper returned no speech data.")
+	if len(tail) < _TAR_END_SIZE or any(tail):
+		raise _ExtractorDisconnected(
+			"The firmware extraction helper disconnected before completing its TAR result."
+		)
 
 
-def _extractSpeechTar(platformImage, destinationTar, progress):
+def _extractSpeechTarOnce(platformImage, destinationTar, progress):
 	reservation = socket.socket()
 	reservation.bind(("127.0.0.1", 0))
 	port = reservation.getsockname()[1]
@@ -266,24 +340,26 @@ def _extractSpeechTar(platformImage, destinationTar, progress):
 		"-device", "virtserialport,chardev=nvda,name=org.onj.samsung.extract",
 		"-no-reboot",
 	]
+	diagnostics = tempfile.TemporaryFile()
 	process = subprocess.Popen(
-		arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+		arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=diagnostics,
 		cwd=ENGINE_DIR, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
 	)
 	connection = None
+	failure = None
 	try:
-		for _ in range(240):
+		connectDeadline = time.monotonic() + _EXTRACTOR_CONNECT_TIMEOUT_SECONDS
+		while time.monotonic() < connectDeadline:
 			if process.poll() is not None:
 				break
 			try:
 				connection = socket.create_connection(("127.0.0.1", port), timeout=0.25)
 				break
 			except OSError:
-				continue
+				time.sleep(0.05)
 		if connection is None:
-			detail = process.stderr.read().decode("utf-8", "replace").strip() if process.stderr else ""
-			raise RuntimeError(detail or "The firmware extraction helper could not be reached.")
-		connection.settimeout(900)
+			raise _ExtractorDisconnected("The firmware extraction helper could not be reached.")
+		connection.settimeout(_EXTRACTOR_RESULT_TIMEOUT_SECONDS)
 		line = _readLine(connection)
 		if line.startswith("ERROR "):
 			raise RuntimeError(line[6:] or "The firmware extraction helper failed.")
@@ -297,6 +373,8 @@ def _extractSpeechTar(platformImage, destinationTar, progress):
 			if size <= 0 or size > 512 * 1024 * 1024:
 				raise RuntimeError("The firmware extraction helper returned an invalid result size.")
 			_receiveExact(connection, destinationTar, size, progress)
+	except Exception as error:
+		failure = error
 	finally:
 		if connection is not None:
 			connection.close()
@@ -307,6 +385,37 @@ def _extractSpeechTar(platformImage, destinationTar, progress):
 			except subprocess.TimeoutExpired:
 				process.kill()
 				process.wait(2)
+		diagnostics.seek(0)
+		detail = diagnostics.read(4096).decode("utf-8", "replace").strip()
+		diagnostics.close()
+	if failure is not None:
+		message = str(failure)
+		if detail:
+			message = "%s Helper details: %s" % (message, detail[-2000:])
+		if isinstance(failure, _ExtractorDisconnected):
+			raise _ExtractorDisconnected(message) from failure
+		raise RuntimeError(message) from failure
+
+
+def _extractSpeechTar(platformImage, destinationTar, progress):
+	lastError = None
+	for attempt in range(_EXTRACTOR_ATTEMPTS):
+		try:
+			return _extractSpeechTarOnce(platformImage, destinationTar, progress)
+		except _ExtractorDisconnected as error:
+			lastError = error
+			try:
+				os.remove(destinationTar)
+			except OSError:
+				pass
+			if attempt + 1 < _EXTRACTOR_ATTEMPTS:
+				time.sleep(0.5)
+	raise RuntimeError(
+		"The firmware extraction helper disconnected twice before completing. "
+		"The verified Samsung download has been retained, so trying again will not download it again. "
+		"Restart NVDA and retry; if this continues, security software may be stopping the bundled helper. "
+		"Last helper error: %s" % lastError
+	) from lastError
 
 
 def _safeTarExtract(archivePath, destination):
@@ -478,6 +587,7 @@ def installPack(packId, progress):
 	if not _installLock.acquire(blocking=False):
 		raise RuntimeError("Another Samsung TV firmware installation is already in progress.")
 	try:
+		_cleanupStaleInstallerFiles()
 		return _installPack(packId, progress)
 	finally:
 		_installLock.release()
