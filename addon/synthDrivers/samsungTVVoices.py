@@ -44,6 +44,7 @@ _OPTIONS = struct.Struct("<iiiii")
 _MAGIC_BYTES = struct.pack("<I", _MAGIC)
 _MAX_PAYLOAD = 8 << 20
 _SESSION_HOST_NAME = "_samsungTVVoicesSessionHost"
+_GUEST_MEMORY = "640M"
 
 _VOICE_PARAMETERS = {}
 _AVAILABLE_VOICES = OrderedDict()
@@ -240,7 +241,7 @@ class _SamsungHost:
 			reservation.close()
 			arguments = [
 				_QEMU_PATH,
-				"-M", "virt", "-cpu", "cortex-a15", "-smp", "2", "-m", "512M",
+				"-M", "virt", "-cpu", "cortex-a15", "-smp", "2", "-m", _GUEST_MEMORY,
 				"-L", _ENGINE_DIR,
 				"-kernel", _KERNEL_PATH,
 				"-initrd", firmwareStore.runtimePath(),
@@ -646,7 +647,8 @@ class SynthDriver(SynthDriver):
 	def _synthesizeText(self, generation, text):
 		if not self._host.isRunning():
 			self._host.start()
-		language, model = _VOICE_PARAMETERS[self._voice]
+		voice = self._voice
+		language, model = _VOICE_PARAMETERS[voice]
 		payload = _OPTIONS.pack(
 			language,
 			model,
@@ -684,7 +686,10 @@ class SynthDriver(SynthDriver):
 			elif messageType == _CANCELLED:
 				return None
 			elif messageType == _ERROR:
-				raise _HostError(payload.decode("utf-8", "replace"))
+				detail = payload.decode("utf-8", "replace")
+				raise _HostError(
+					f"{detail} Voice: {voice}; language: {language}; model: {model}."
+				)
 
 	def _render(self, generation, events):
 		with self._stateLock:

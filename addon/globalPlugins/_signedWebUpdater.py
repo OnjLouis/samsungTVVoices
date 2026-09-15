@@ -188,9 +188,16 @@ class SignedWebUpdater:
 			if getattr(current, "name", "") == "samsungTVVoices":
 				if not synthDriverHandler.setSynth("oneCore"):
 					raise RuntimeError("NVDA could not switch away from Samsung TV Voices.")
+			previousAddon = None
+			for addon in addonHandler.getAvailableAddons():
+				if addon.name == bundle.manifest.get("name") and not getattr(addon, "isPendingInstall", False):
+					previousAddon = addon
+					break
 			result = ExecAndPump(addonHandler.installAddonBundle, bundle)
 			if getattr(bundle, "_installExceptions", None):
 				raise RuntimeError("NVDA reported an error while staging the add-on update.")
+			if previousAddon:
+				previousAddon.requestRemove()
 			if result.funcRes:
 				result.funcRes._cleanupAddonImports()
 			gui.messageBox(_("The update is ready. NVDA will now restart."), _("Update complete"), wx.OK | wx.ICON_INFORMATION)
