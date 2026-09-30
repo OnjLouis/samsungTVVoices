@@ -29,6 +29,7 @@ _installLock = threading.Lock()
 _EXTRACTOR_ATTEMPTS = 2
 _EXTRACTOR_CONNECT_TIMEOUT_SECONDS = 60
 _EXTRACTOR_RESULT_TIMEOUT_SECONDS = 900
+_EXTRACTOR_DIAGNOSTIC_LIMIT = 8192
 _TAR_END_SIZE = 1024
 _INSTALLER_RETENTION_SECONDS = 24 * 60 * 60
 
@@ -263,7 +264,11 @@ def _readLine(connection, limit=4096):
 	while len(data) < limit:
 		try:
 			part = connection.recv(1)
-		except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, socket.timeout) as error:
+		except socket.timeout as error:
+			raise _ExtractorDisconnected(
+				"The firmware extraction helper timed out while waiting for its status."
+			) from error
+		except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError) as error:
 			raise _ExtractorDisconnected(
 				"The firmware extraction helper disconnected before reporting its status."
 			) from error
@@ -323,6 +328,20 @@ def _receiveStream(connection, destination, maximumSize, progress):
 		)
 
 
+def _collectExtractorOutput(stream, output):
+	# Drain the guest console without allowing diagnostics to fill a pipe or disk.
+	try:
+		while True:
+			chunk = stream.read(4096)
+			if not chunk:
+				break
+			output[0] = (output[0] + chunk)[-_EXTRACTOR_DIAGNOSTIC_LIMIT:]
+	except OSError:
+		pass
+	finally:
+		stream.close()
+
+
 def _extractSpeechTarOnce(platformImage, destinationTar, progress):
 	reservation = socket.socket()
 	reservation.bind(("127.0.0.1", 0))
@@ -331,23 +350,30 @@ def _extractSpeechTarOnce(platformImage, destinationTar, progress):
 	arguments = [
 		QEMU_PATH, "-M", "virt", "-cpu", "cortex-a15", "-smp", "2", "-m", "512M",
 		"-L", ENGINE_DIR, "-kernel", KERNEL_PATH, "-initrd", EXTRACTOR_INITRAMFS_PATH,
-		"-append", "rdinit=/init quiet loglevel=0 samsung.mode=extract",
+		"-append", "rdinit=/init console=ttyAMA0 quiet loglevel=4 samsung.mode=extract",
 		"-drive", "file=%s,format=raw,if=none,id=firmware,readonly=on" % platformImage,
 		"-device", "virtio-blk-device,drive=firmware",
-		"-display", "none", "-monitor", "none", "-serial", "null",
+		"-display", "none", "-monitor", "none", "-serial", "stdio",
 		"-device", "virtio-serial-device",
 		"-chardev", "socket,id=nvda,host=127.0.0.1,port=%d,server=on,wait=off,nodelay=on" % port,
 		"-device", "virtserialport,chardev=nvda,name=org.onj.samsung.extract",
 		"-no-reboot",
 	]
-	diagnostics = tempfile.TemporaryFile()
 	process = subprocess.Popen(
-		arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=diagnostics,
+		arguments, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
 		cwd=ENGINE_DIR, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+	)
+	output = [b""]
+	reader = threading.Thread(
+		target=_collectExtractorOutput, args=(process.stdout, output),
+		name="Samsung TV extractor diagnostics", daemon=True,
 	)
 	connection = None
 	failure = None
+	stage = "connecting to helper"
+	started = time.monotonic()
 	try:
+		reader.start()
 		connectDeadline = time.monotonic() + _EXTRACTOR_CONNECT_TIMEOUT_SECONDS
 		while time.monotonic() < connectDeadline:
 			if process.poll() is not None:
@@ -360,9 +386,11 @@ def _extractSpeechTarOnce(platformImage, destinationTar, progress):
 		if connection is None:
 			raise _ExtractorDisconnected("The firmware extraction helper could not be reached.")
 		connection.settimeout(_EXTRACTOR_RESULT_TIMEOUT_SECONDS)
+		stage = "awaiting guest status"
 		line = _readLine(connection)
 		if line.startswith("ERROR "):
 			raise RuntimeError(line[6:] or "The firmware extraction helper failed.")
+		stage = "receiving speech files"
 		if line == "SAMSUNG_TTS_TAR_STREAM":
 			_receiveStream(connection, destinationTar, 512 * 1024 * 1024, progress)
 		else:
@@ -378,20 +406,29 @@ def _extractSpeechTarOnce(platformImage, destinationTar, progress):
 	finally:
 		if connection is not None:
 			connection.close()
-		if process.poll() is None:
+		exitCode = process.poll()
+		elapsed = time.monotonic() - started
+		if exitCode is None:
 			process.terminate()
 			try:
 				process.wait(3)
 			except subprocess.TimeoutExpired:
 				process.kill()
 				process.wait(2)
-		diagnostics.seek(0)
-		detail = diagnostics.read(4096).decode("utf-8", "replace").strip()
-		diagnostics.close()
+		if reader.ident is not None:
+			reader.join(2)
+		else:
+			process.stdout.close()
+		detail = output[0].decode("utf-8", "replace").strip()
 	if failure is not None:
-		message = str(failure)
-		if detail:
-			message = "%s Helper details: %s" % (message, detail[-2000:])
+		processState = (
+			"still running when the failure occurred" if exitCode is None else
+			"exited with code %d (0x%08X)" % (exitCode, exitCode & 0xFFFFFFFF)
+		)
+		message = "%s Stage: %s; elapsed: %.1f s; helper %s. Helper details: %s" % (
+			failure, stage, elapsed, processState,
+			detail or "No guest diagnostic output was received.",
+		)
 		if isinstance(failure, _ExtractorDisconnected):
 			raise _ExtractorDisconnected(message) from failure
 		raise RuntimeError(message) from failure
@@ -413,7 +450,7 @@ def _extractSpeechTar(platformImage, destinationTar, progress):
 	raise RuntimeError(
 		"The firmware extraction helper disconnected twice before completing. "
 		"The verified Samsung download has been retained, so trying again will not download it again. "
-		"Restart NVDA and retry; if this continues, security software may be stopping the bundled helper. "
+		"Please include the complete NVDA log when reporting this failure. "
 		"Last helper error: %s" % lastError
 	) from lastError
 

@@ -21,6 +21,8 @@
 <p>The Samsung TV Voices settings panel lists the available firmware packages, their installed state and the voices currently available. Multiple firmware packages may be selected for download, update or removal. Downloads continue if the settings panel is closed. A focusable two-column status list reports the current package, stage, batch position, progress, transferred size and download speed without moving your reading position as values change. Removing the last package requires you to switch to another synthesizer first.</p>
 <p>Installed speech data is stored in the <code>samsungTVVoices</code> folder beside your NVDA configuration. Updating the add-on does not remove downloaded voices.</p>
 <p>The same panel offers signed add-on update checks. Checks can run never, hourly or daily, and Check now starts one immediately.</p>
+<h2>Installation problems</h2>
+<p>If a verified firmware download cannot be installed, keep the complete NVDA log from the failed attempt and include it when reporting the problem. The extraction error reports the stage, elapsed time, helper process state and any final guest diagnostic messages. A verified download is retained for retry for up to 24 hours; you do not need to download the same package again during that period.</p>
 <h2>Using the voices</h2>
 <p>Select Samsung TV Voices in NVDA's synthesizer dialog. The first selection starts an isolated ARM speech helper and can take several seconds. The helper remains ready for the rest of the NVDA session, including while another synthesizer is selected.</p>
 <p>Voice, rate, pitch and volume are available through NVDA's normal speech settings and synthesizer settings ring. The ring also exposes the engine's undocumented Head size control, which changes vocal-tract size independently of pitch. Speech pause, interruption, spelling and Say All indexes are passed through NVDA's audio system.</p>
@@ -36,6 +38,11 @@
 <li>The NVDA integration draws on lifecycle and audio lessons from the Prose 2000 and Dengjen Neural Voices add-ons.</li>
 </ul>
 <h2>Changes</h2>
+<h3>1.0.3</h3>
+<ul>
+<li>Improved firmware installation failure reports with the extraction stage, elapsed time, helper exit status and final diagnostic messages. Addresses Issues <a href="https://github.com/OnjLouis/samsungTVVoices/issues/3">3</a> and <a href="https://github.com/OnjLouis/samsungTVVoices/issues/6">6</a>; the reported installation failure is still under investigation.</li>
+<li>Distinguished an extraction timeout from a disconnected helper without changing speech playback or installed voices.</li>
+</ul>
 <h3>1.0.2</h3>
 <ul>
 <li>Fixed several European voices that could remain silent when both firmware packs were installed.</li>
