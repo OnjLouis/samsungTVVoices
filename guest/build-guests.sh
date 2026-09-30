@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-base=/mnt/archive/codex-temp/samsung-tv-public
+base=${1:?Usage: build-guests.sh staging-directory}
 rm -rf "$base/clean-root" "$base/extractor-root"
 cp -a "$base/private-root" "$base/clean-root"
 rm -rf "$base/clean-root/opt/smt/runtime"
@@ -23,7 +23,7 @@ cp "$base/extract-init" "$base/extractor-root/init"
 chmod 755 "$base/extractor-root/init"
 
 cd "$base/clean-root"
-find . -print0 | cpio --null -o --format=newc > "$base/samsung-clean-initramfs.cpio" 2>/tmp/samsung-clean-cpio.log
+find . -print0 | cpio --null -o --format=newc > "$base/samsung-clean-initramfs.cpio" 2>"$base/samsung-clean-cpio.log"
 cd "$base/extractor-root"
-find . -print0 | cpio --null -o --format=newc > "$base/samsung-extractor-initramfs.cpio" 2>/tmp/samsung-extractor-cpio.log
+find . -print0 | cpio --null -o --format=newc > "$base/samsung-extractor-initramfs.cpio" 2>"$base/samsung-extractor-cpio.log"
 ls -lh "$base"/samsung-*-initramfs.cpio
