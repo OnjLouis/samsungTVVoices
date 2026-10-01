@@ -7,7 +7,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE = ROOT / "addon" / "globalPlugins" / "_signedWebUpdater.py"
+MODULE = ROOT / "addon" / "globalPlugins" / "_samsungTVUpdater.py"
 sys.path.insert(0, str(ROOT / "addon"))
 
 for name in ("addonHandler", "core", "gui", "synthDriverHandler", "wx"):

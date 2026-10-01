@@ -13,7 +13,7 @@ import gui
 from logHandler import log
 import synthDriverHandler
 from synthDrivers._samsungTVVoices import firmwareStore
-from ._signedWebUpdater import SignedWebUpdater
+from ._samsungTVUpdater import SignedWebUpdater
 import ui
 import wx
 

@@ -4,6 +4,10 @@ Samsung TV Voices makes compatible speech voices from official Samsung televisio
 
 The accessible manager supports background and multiple-package downloads, removal, live voice refresh, resumable transfers, automatic recovery from a disconnected extraction helper, and a stable status list. NVDA exposes voice, rate, pitch, volume, head size, interruption, spelling and Say All support.
 
+## Updating Both Samsung Add-ons
+
+TV versions before 1.0.4 and Galaxy versions before 1.1.5 can check or install the wrong add-on when both are installed. Download the latest packages from [TV Releases](https://github.com/OnjLouis/samsungTVVoices/releases) and [Galaxy Releases](https://github.com/OnjLouis/samsungGalaxyVoices/releases), install both in NVDA's add-on manager, and restart NVDA. Installed voices and settings are preserved.
+
 ## Repository layout
 
 - `addon` contains the NVDA add-on and its bundled runtime dependencies.
